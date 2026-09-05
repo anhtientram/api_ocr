@@ -1,0 +1,24 @@
+# Cursor IDE Rules — AI Intake Proxy (api_ocr)
+
+Bạn đang làm việc trên microservice **AI Intake / OCR Proxy** phục vụ clinic-booking (NTT).
+
+## Master references
+1. Agent guide: `AGENTS.md`
+2. API contract: `docs/API-CONTRACT.md`
+3. Consumer contract: `docs/CONTRACT-WITH-CLINIC-BOOKING.md`
+4. Consumer tasks: `clinic-booking/tasks.json` (P2.01–P2.09)
+5. Consumer OCR workflow: `clinic-booking/.agents/workflows/dev2/dev2-p2.03-ocr-reader.md`
+
+## Key principles
+1. **Tách service**: OCR/AI sống ở repo này; Web App chỉ gọi REST nội bộ bằng secret key.
+2. **Zero PII**: Không nhận / không log SĐT, họ tên, địa chỉ. Client phải anonymize trước (P2.02).
+3. **AI không lâm sàng**: Cấm chẩn đoán, cấm kê thuốc trong mọi prompt và post-filter.
+4. **Human verify**: Chỉ số confidence thấp phải gắn `needs_human_verify: true`.
+5. **Fault-tolerant**: Lỗi OCR/AI trả JSON lỗi có `code`; không crash process; Web App tự fallback.
+6. **Document types** (khớp FormIntake): `lab` | `ultrasound` | `prescription` | `other`.
+7. **Metrics mục tiêu**: AMH, FSH, LH, E2, và chỉ số siêu âm thường gặp — xem skill `medical-lab-ocr`.
+
+## Before coding
+- Đọc skill liên quan trong `.agents/skills/`.
+- Làm theo workflow trong `.agents/workflows/`.
+- Giữ response schema khớp `docs/API-CONTRACT.md`.

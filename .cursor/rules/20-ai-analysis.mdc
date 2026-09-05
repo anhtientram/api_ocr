@@ -1,0 +1,13 @@
+---
+description: AI extract and summary rules — no diagnosis or prescribing.
+globs: "**/*{ai,analyze,prompt,extract}*"
+alwaysApply: false
+---
+
+# AI Analysis
+
+- Structured JSON only; versioned prompts.
+- Cấm chẩn đoán / kê thuốc; có post-filter + test.
+- `needs_human_verify` khi confidence thấp.
+- Canonical lab keys: skill `medical-lab-ocr`.
+- Luôn trả `usage.model` + tokens.

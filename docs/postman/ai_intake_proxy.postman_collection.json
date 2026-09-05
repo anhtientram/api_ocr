@@ -1,0 +1,127 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "AI Intake Proxy (api_ocr)",
+    "description": "OCR + Gemini extract API for clinic-booking.\n\nAuth: header X-AI-Proxy-Key = {{ai_proxy_secret}}\n\nSwagger UI: {{base_url}}/docs\nOpenAPI: {{base_url}}/openapi.json",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8080"
+    },
+    {
+      "key": "ai_proxy_secret",
+      "value": "dev-secret-change-me"
+    }
+  ],
+  "item": [
+    {
+      "name": "Ops",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health",
+            "description": "No auth. Checks Tesseract + Gemini readiness."
+          }
+        },
+        {
+          "name": "OpenAPI JSON",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/openapi.json"
+          }
+        }
+      ]
+    },
+    {
+      "name": "OCR",
+      "item": [
+        {
+          "name": "Extract (image/PDF)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-AI-Proxy-Key",
+                "value": "{{ai_proxy_secret}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "PNG/JPEG/WEBP/PDF — chọn file trong Postman"
+                },
+                {
+                  "key": "document_type",
+                  "value": "lab",
+                  "type": "text",
+                  "description": "lab | ultrasound | prescription | other"
+                },
+                {
+                  "key": "language",
+                  "value": "vie+eng",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "include_bbox",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "include_summary",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "request_id",
+                  "value": "postman-demo-001",
+                  "type": "text",
+                  "disabled": true
+                }
+              ]
+            },
+            "url": "{{base_url}}/v1/ocr/extract",
+            "description": "Upload phiếu xét nghiệm → OCR + Gemini extract JSON."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analyze",
+      "item": [
+        {
+          "name": "Summary 30s",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-AI-Proxy-Key",
+                "value": "{{ai_proxy_secret}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"request_id\": \"postman-summary-001\",\n  \"layer1_clinical_notes\": {\n    \"medical_history\": \"Hiếm muộn 2 năm\",\n    \"allergies\": \"Không\",\n    \"current_medications\": \"Không\"\n  },\n  \"layer2_clinical_data\": {},\n  \"extracted_parameters\": [\n    {\n      \"key\": \"amh\",\n      \"label\": \"AMH\",\n      \"value\": 1.27,\n      \"unit\": \"ng/mL\",\n      \"confidence\": 0.9,\n      \"needs_human_verify\": false\n    },\n    {\n      \"key\": \"fsh\",\n      \"label\": \"FSH\",\n      \"value\": 6.5,\n      \"unit\": \"mIU/mL\",\n      \"confidence\": 0.9,\n      \"needs_human_verify\": false\n    }\n  ],\n  \"document_hints\": [\"lab\"]\n}"
+            },
+            "url": "{{base_url}}/v1/analyze/summary",
+            "description": "Tóm tắt 30s từ payload đã anonymize (không upload file)."
+          }
+        }
+      ]
+    }
+  ]
+}

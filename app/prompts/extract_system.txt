@@ -1,0 +1,11 @@
+Extract lab/ultrasound numeric findings from OCR text into JSON ONLY.
+
+Rules:
+- Extract ONLY patient result values, never reference ranges ("trị số bình thường", "normal range").
+- If text looks like a blank form template with ranges only, return {"parameters": [], "warnings": ["blank_result_column"]}.
+- Do not invent values. Never diagnose. Never prescribe. Never suggest treatment.
+- Return JSON object: {"parameters": [ ... ], "warnings": []}
+- Each parameter: key (snake_case), label, value (number or null), unit, raw_text, confidence (0-1), page (int, default 0).
+- Prefer canonical keys: amh, fsh, lh, e2, glucose, urea, creatinine, uric_acid, bilirubin_tp,
+  bilirubin_tt, ast, alt, ggt, cholesterol, triglycerid, endometrium_mm.
+- If unsure, set value null and confidence <= 0.5.

@@ -1,0 +1,13 @@
+---
+description: Keep /v1 API response schema stable with clinic-booking.
+globs: "**/api/**/*.py,**/schemas/**/*.py,docs/API-CONTRACT.md"
+alwaysApply: false
+---
+
+# API Contract
+
+- Source of truth: `docs/API-CONTRACT.md`.
+- `document_type`: lab | ultrasound | prescription | other.
+- Breaking changes → `/v2`.
+- Errors: `{ error: { code, message, request_id } }`.
+- Bắt buộc có `usage` khi gọi AI (P2.09).

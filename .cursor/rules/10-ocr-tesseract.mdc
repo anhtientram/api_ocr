@@ -1,0 +1,13 @@
+---
+description: Tesseract OCR and PDF preprocessing conventions.
+globs: "**/*ocr*"
+alwaysApply: false
+---
+
+# OCR / Tesseract
+
+- Engine: Tesseract `vie+eng`.
+- PDF → ảnh qua Poppler; OCR từng trang.
+- Giữ word boxes nếu cần Source Trace.
+- Max size/pages theo config; cleanup temp files.
+- Chi tiết: `.agents/rules/10-ocr-pipeline.md`.

@@ -1,0 +1,12 @@
+---
+description: Core conventions for api_ocr AI Intake microservice.
+alwaysApply: true
+---
+
+# api_ocr Core
+
+- Microservice OCR + AI cho `clinic-booking` Phase 2 — không nhúng Laravel.
+- Đọc `AGENTS.md`, `docs/API-CONTRACT.md` trước khi đổi API.
+- AI không chẩn đoán / không kê thuốc.
+- Không log PII; auth bằng `X-AI-Proxy-Key`.
+- Workflows: `.agents/workflows/`; skills: `.agents/skills/`.

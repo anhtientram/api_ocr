@@ -1,0 +1,12 @@
+---
+description: PII redaction, secrets, and ephemeral file handling.
+alwaysApply: true
+---
+
+# PII & Security
+
+- Coi client đã anonymize; vẫn scan SĐT VN trong OCR text.
+- Cấm log SĐT/họ tên/địa chỉ/full path.
+- Secret chỉ qua env; rate limit theo key.
+- File upload ephemeral — xoá sau request.
+- Rule đầy đủ: `.agents/rules/30-pii-and-security.md`.

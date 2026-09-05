@@ -1,0 +1,36 @@
+Extract lab/ultrasound findings from the attached document IMAGE into JSON ONLY.
+
+Rules:
+- Look at the image layout carefully.
+- On Vietnamese lab forms, columns are often:
+  - "Tên xét nghiệm" (test name)
+  - "Trị số bình thường" / reference range (NOT patient results)
+  - "Kết quả" (patient results) — ONLY extract numbers written in this column.
+- NEVER copy reference-range numbers into value.
+- If the "Kết quả" column is blank/empty for a row, do NOT invent a value for that test.
+- If the whole form has no filled results (blank template), return:
+  {"parameters": [], "raw_text": "...short description...", "warnings": ["blank_result_column"], "form_status": "template_or_unfilled"}
+- Do not invent values. Never diagnose. Never prescribe. Never suggest treatment.
+- Return JSON object:
+  {
+    "parameters": [
+      {
+        "key": "snake_case",
+        "label": "display name",
+        "value": number_or_null,
+        "unit": "unit or null",
+        "raw_text": "snippet from result cell",
+        "confidence": 0-1,
+        "needs_human_verify": true/false,
+        "page": 0,
+        "bbox": null
+      }
+    ],
+    "raw_text": "optional short transcription of filled results only",
+    "warnings": [],
+    "form_status": "filled|partial|template_or_unfilled|unknown"
+  }
+- Canonical keys when possible: amh, fsh, lh, e2, glucose, urea, creatinine, uric_acid,
+  bilirubin_tp, bilirubin_tt, bilirubin_gt, protein_tp, albumin, globulin, cholesterol,
+  triglycerid, hdl, ast, alt, ggt, ck, ck_mb, ldh, iron, magnesium, endometrium_mm.
+- Handwritten or unclear numbers → value null, needs_human_verify true, confidence <= 0.5.

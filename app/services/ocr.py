@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+import io
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+
+from app.core.config import Settings
+from app.core.constants import ErrorCode
+from app.core.errors import AppError
+from app.services.bbox import WordBox
+from app.services.table_extract import cluster_rows, merge_row_text
+
+ALLOWED_IMAGE_MIME = {
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/webp",
+    "image/tiff",
+}
+ALLOWED_PDF_MIME = {"application/pdf"}
+
+
+@dataclass
+class PageOcrResult:
+    page: int
+    text: str
+    confidence: float
+    word_boxes: list[WordBox] = field(default_factory=list)
+
+
+@dataclass
+class OcrResult:
+    text: str
+    confidence: float
+    pages: list[PageOcrResult]
+    ocr_ms: int
+
+
+class OcrService:
+    def __init__(self, settings: Settings):
+        self.settings = settings
+
+    def extract(self, content: bytes, filename: str, content_type: str | None, language: str | None = None) -> OcrResult:
+        started = time.perf_counter()
+        lang = language or self.settings.ocr_languages
+        mime = (content_type or "").split(";")[0].strip().lower()
+        suffix = Path(filename or "upload").suffix.lower()
+
+        if mime in ALLOWED_PDF_MIME or suffix == ".pdf":
+            pages = self._ocr_pdf(content, lang)
+        elif mime in ALLOWED_IMAGE_MIME or suffix in {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"}:
+            pages = [self._ocr_image(content, lang, page=0)]
+        elif not mime and suffix:
+            if suffix == ".pdf":
+                pages = self._ocr_pdf(content, lang)
+            else:
+                pages = [self._ocr_image(content, lang, page=0)]
+        else:
+            raise AppError(ErrorCode.INVALID_FILE, "Unsupported file type. Use PNG/JPEG/WEBP/PDF.", status_code=400)
+
+        if not pages:
+            raise AppError(ErrorCode.OCR_FAILED, "No pages could be OCR'd.", status_code=422)
+
+        texts = [p.text.strip() for p in pages if p.text and p.text.strip()]
+        joined = "\n\n".join(texts).strip()
+        confs = [p.confidence for p in pages if p.confidence > 0]
+        avg_conf = sum(confs) / len(confs) if confs else 0.0
+        elapsed = int((time.perf_counter() - started) * 1000)
+
+        if not joined:
+            raise AppError(ErrorCode.OCR_FAILED, "OCR produced empty text.", status_code=422)
+
+        return OcrResult(text=joined, confidence=round(avg_conf, 4), pages=pages, ocr_ms=elapsed)
+
+    def _ocr_pdf(self, content: bytes, lang: str) -> list[PageOcrResult]:
+        try:
+            from pdf2image import convert_from_bytes
+        except ImportError as e:
+            raise AppError(ErrorCode.OCR_FAILED, "pdf2image is not installed.", status_code=500) from e
+
+        try:
+            images = convert_from_bytes(
+                content,
+                dpi=max(self.settings.ocr_dpi, 250),
+                fmt="png",
+                first_page=1,
+                last_page=self.settings.max_pdf_pages,
+            )
+        except Exception as e:
+            raise AppError(ErrorCode.INVALID_FILE, "Unable to read PDF.", status_code=400) from e
+
+        if not images:
+            raise AppError(ErrorCode.INVALID_FILE, "PDF has no pages.", status_code=400)
+
+        return [self._ocr_pil(img, lang, page=idx) for idx, img in enumerate(images)]
+
+    def _ocr_image(self, content: bytes, lang: str, page: int) -> PageOcrResult:
+        try:
+            img = Image.open(io.BytesIO(content))
+        except Exception as e:
+            raise AppError(ErrorCode.INVALID_FILE, "Unable to read image.", status_code=400) from e
+        return self._ocr_pil(img, lang, page=page)
+
+    def _preprocess(self, img: Image.Image) -> Image.Image:
+        processed = ImageOps.exif_transpose(img)
+        if processed.mode not in ("RGB", "L"):
+            processed = processed.convert("RGB")
+        # Upscale small scans so decimals / thin glyphs survive
+        w, h = processed.size
+        scale = 1.0
+        min_side = min(w, h)
+        if min_side < 1400:
+            scale = 1400 / min_side
+        if scale > 1.01:
+            processed = processed.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
+        gray = ImageOps.grayscale(processed)
+        gray = ImageOps.autocontrast(gray)
+        gray = ImageEnhance.Contrast(gray).enhance(1.35)
+        gray = gray.filter(ImageFilter.SHARPEN)
+        return gray
+
+    def _ocr_pil(self, img: Image.Image, lang: str, page: int) -> PageOcrResult:
+        try:
+            import pytesseract
+        except ImportError as e:
+            raise AppError(ErrorCode.OCR_FAILED, "pytesseract is not installed.", status_code=500) from e
+
+        gray = self._preprocess(img)
+        # PSM 6 = assume uniform block of text (tables); preserve digits + decimals
+        config = r"--oem 3 --psm 6 -c preserve_interword_spaces=1"
+
+        try:
+            data = pytesseract.image_to_data(
+                gray, lang=lang, config=config, output_type=pytesseract.Output.DICT
+            )
+        except pytesseract.TesseractNotFoundError as e:
+            raise AppError(
+                ErrorCode.OCR_FAILED,
+                "Tesseract binary not found. Install tesseract-ocr and language packs.",
+                status_code=500,
+            ) from e
+        except Exception as e:
+            raise AppError(ErrorCode.OCR_FAILED, "Tesseract failed to process image.", status_code=422) from e
+
+        word_boxes: list[WordBox] = []
+        confs: list[float] = []
+        n = len(data.get("text", []))
+        for i in range(n):
+            raw = (data["text"][i] or "").strip()
+            if not raw:
+                continue
+            try:
+                conf = float(data["conf"][i])
+            except (TypeError, ValueError):
+                conf = -1
+            if conf >= 0:
+                confs.append(conf / 100.0)
+            word_boxes.append(
+                WordBox(
+                    text=raw,
+                    conf=max(conf, 0) / 100.0 if conf >= 0 else 0.0,
+                    page=page,
+                    left=int(data["left"][i]),
+                    top=int(data["top"][i]),
+                    width=int(data["width"][i]),
+                    height=int(data["height"][i]),
+                )
+            )
+
+        # Rebuild text from geometry (better for table rows than raw string dump)
+        row_lines = [merge_row_text(r) for r in cluster_rows(word_boxes, y_tol=14)]
+        text = "\n".join(ln for ln in row_lines if ln.strip())
+        if not text.strip():
+            try:
+                text = pytesseract.image_to_string(gray, lang=lang, config=config) or ""
+            except Exception:
+                text = ""
+
+        avg = sum(confs) / len(confs) if confs else 0.0
+        return PageOcrResult(page=page, text=text, confidence=avg, word_boxes=word_boxes)

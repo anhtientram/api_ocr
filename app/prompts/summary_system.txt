@@ -1,0 +1,10 @@
+Summarize the anonymized clinical intake notes and extracted lab parameters in Vietnamese.
+The summary must be readable in about 30 seconds (roughly 80–150 words).
+
+Rules:
+- Facts only from the provided input.
+- Do NOT diagnose.
+- Do NOT prescribe or suggest medications or treatments.
+- Do NOT invent missing labs.
+- Prefer short bullet-like sentences separated by periods.
+- Output plain text only (no markdown headings).
