@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     max_pdf_pages: int = 20
     ocr_languages: str = "vie+eng"
     ocr_dpi: int = 200
+    # paddle = RapidOCR (PaddleOCR ONNX, recommended); tesseract = legacy
+    ocr_engine: str = "paddle"
     confidence_verify_threshold: float = 0.7
 
     ai_provider: str = "gemini"

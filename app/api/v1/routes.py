@@ -151,6 +151,7 @@ async def ocr_extract(
             )
             ocr_ms = ocr_result.ocr_ms
             ocr_confidence = ocr_result.confidence
+            warnings.append(f"ocr_engine:{ocr_result.engine}")
             redacted_text, pii_found = redact_pii(ocr_result.text)
             if pii_found:
                 warnings.append("pii_redacted")
