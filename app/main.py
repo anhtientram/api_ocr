@@ -5,19 +5,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
 from app.api.v1.routes import router as v1_router
+from app.core.body_cache import BodyCacheMiddleware
 from app.core.config import get_settings
 from app.core.errors import AppError, app_error_handler, http_error_handler
 from app.services.ai import AiService
 
 API_DESCRIPTION = """
-AI Intake Proxy — OCR (Tesseract) + Gemini extract chỉ số phiếu xét nghiệm.
+AI Intake Proxy — OCR + extract chỉ số phiếu xét nghiệm (Phase 2 Rev 0.2).
 
-## Auth
-Các route `/v1/*` cần header:
+## Auth (ưu tiên HMAC)
+```
+X-Clinic-Service: clinic-booking-core
+X-Clinic-Timestamp: <unix>
+X-Clinic-Nonce: <random>
+X-Clinic-Signature: sha256_hmac(body, secret + timestamp + nonce)
+```
 
-`X-AI-Proxy-Key: <AI_PROXY_SECRET>`
-
-Trong Swagger: bấm **Authorize** → dán secret (mặc định local: `dev-secret-change-me`).
+Legacy transition: `X-AI-Proxy-Key: <AI_PROXY_SECRET>` vẫn được chấp nhận.
 """
 
 
@@ -25,12 +29,13 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title="AI Intake Proxy (api_ocr)",
-        version="1.0.0",
+        version="1.1.0",
         description=API_DESCRIPTION,
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
     )
+    app.add_middleware(BodyCacheMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -47,9 +52,14 @@ def create_app() -> FastAPI:
         ai = AiService(settings)
         ocr_status = "ready"
         try:
-            import pytesseract
+            from app.services import rapid_ocr
 
-            pytesseract.get_tesseract_version()
+            if rapid_ocr.available():
+                ocr_status = "ready"
+            else:
+                import pytesseract
+
+                pytesseract.get_tesseract_version()
         except Exception:
             ocr_status = "unavailable"
 
@@ -70,19 +80,25 @@ def create_app() -> FastAPI:
             description=app.description,
             routes=app.routes,
         )
-        schema.setdefault("components", {}).setdefault("securitySchemes", {})["AiProxyKey"] = {
+        comps = schema.setdefault("components", {}).setdefault("securitySchemes", {})
+        comps["AiProxyKey"] = {
             "type": "apiKey",
             "in": "header",
             "name": "X-AI-Proxy-Key",
-            "description": "Internal secret shared with clinic-booking (env AI_PROXY_SECRET)",
+            "description": "Legacy secret (env AI_PROXY_SECRET). Prefer HMAC headers.",
         }
-        # Apply security to /v1 paths only
+        comps["ClinicHmac"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-Clinic-Signature",
+            "description": "HMAC SHA-256 of body with key=secret+timestamp+nonce",
+        }
         for path, methods in schema.get("paths", {}).items():
             if not path.startswith("/v1"):
                 continue
             for op in methods.values():
                 if isinstance(op, dict):
-                    op.setdefault("security", [{"AiProxyKey": []}])
+                    op.setdefault("security", [{"AiProxyKey": []}, {"ClinicHmac": []}])
         app.openapi_schema = schema
         return app.openapi_schema
 

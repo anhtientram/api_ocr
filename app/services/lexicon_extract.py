@@ -13,11 +13,13 @@ import unicodedata
 
 from app.models.schemas import ExtractedParameter
 from app.services.bbox import WordBox
-from app.services.table_extract import ROW_METRICS, TYPICAL_RANGE, recover_decimal
+from app.services.table_extract import ROW_METRICS, TYPICAL_RANGE, recover_decimal, parse_number_token, NUM_RE as TE_NUM_RE
 
-NUM_RE = re.compile(r"\d+(?:[.,]\d+)?")
+NUM_RE = TE_NUM_RE
 PAREN_RE = re.compile(r"\([^)]*\)")
-RANGE_RE = re.compile(r"\d+(?:[.,]\d+)?\s*[-–—~]\s*\d+(?:[.,]\d+)?")
+RANGE_RE = re.compile(
+    r"(?<![A-Za-z0-9])\d+(?:[.,]\d+)?\s*[-–—~]\s*\d+(?:[.,]\d+)?"
+)
 
 
 def _fold(s: str) -> str:
@@ -50,24 +52,50 @@ def _lev(a: str, b: str) -> int:
 
 
 def _alias_hit(alias: str, haystack: str) -> bool:
-    """Match alias in text: exact fold, compact, or fuzzy for longer tokens."""
-    a = _fold(alias)
+    """Match alias in text: exact fold, compact, or fuzzy for longer tokens.
+
+    Short aliases (≤3 chars like alt/lh/gpt) must be whole tokens — otherwise
+    ``alt`` falsely matches inside ``Total T`` → compact ``totalt``.
+    """
+    a = _fold(alias).strip()
     h = _fold(haystack)
     if not a or len(a) < 2:
         return False
-    if a in h:
+
+    # Word-boundary / token match (handles "Total T", "(ALT)", "ALT (GPT)")
+    if re.search(rf"(?<![a-z0-9]){re.escape(a)}(?![a-z0-9])", h):
         return True
+
     ac, hc = _compact(alias), _compact(haystack)
-    if ac and ac in hc:
-        return True
-    # Fuzzy: alias token appears as near-equal word in haystack
-    if len(ac) >= 5:
-        for w in re.findall(r"[a-z0-9]{4,}", hc):
+    if not ac:
+        return False
+
+    # Short compact forms: only exact token equality, never substring
+    if len(ac) <= 3:
+        tokens = re.findall(r"[a-z0-9]+", hc)
+        return ac in tokens
+
+    if ac in hc:
+        # Avoid Free T 425 → compact "...freet425..." matching alias "freet4"
+        start = 0
+        while True:
+            idx = hc.find(ac, start)
+            if idx < 0:
+                break
+            after = hc[idx + len(ac) : idx + len(ac) + 1]
+            before = hc[idx - 1] if idx > 0 else ""
+            if not before.isdigit() and not after.isdigit():
+                return True
+            start = idx + 1
+
+    # Fuzzy: longer alpha aliases only (avoid Free T ≈ FT4)
+    if len(ac) >= 5 and not re.search(r"\d", ac):
+        for w in re.findall(r"[a-z]{4,}", hc):
+            if abs(len(ac) - len(w)) > 1:
+                continue
             if _lev(ac, w) <= 2:
                 return True
     return False
-
-
 def _plausible(key: str, value: float) -> bool:
     lo_hi = TYPICAL_RANGE.get(key)
     if not lo_hi:
@@ -90,12 +118,24 @@ def _numbers_from_segment(segment: str) -> list[float]:
     cleaned = RANGE_RE.sub(" ", cleaned)
     out: list[float] = []
     for m in NUM_RE.finditer(cleaned):
-        raw = m.group(0).replace(",", ".")
-        try:
-            out.append(float(raw))
-        except ValueError:
-            continue
+        val = parse_number_token(m.group(0))
+        if val is not None:
+            out.append(val)
     return out
+
+def _slash_pair(segment: str) -> tuple[float, float] | None:
+    """Parse A/B pairs like 145/90 or 4.35/139."""
+    m = re.search(
+        r"(?<![A-Za-z0-9])(\d+(?:[.,]\d+)?)\s*/\s*(\d+(?:[.,]\d+)?)(?![A-Za-z])",
+        segment,
+    )
+    if not m:
+        return None
+    a = parse_number_token(m.group(1))
+    b = parse_number_token(m.group(2))
+    if a is None or b is None:
+        return None
+    return a, b
 
 
 def _scan_text_for_metric(ocr_text: str, key: str, aliases: tuple[str, ...]) -> float | None:
@@ -103,6 +143,21 @@ def _scan_text_for_metric(ocr_text: str, key: str, aliases: tuple[str, ...]) -> 
     if not ocr_text:
         return None
     lines = ocr_text.splitlines()
+
+    # Global BP pattern (value often separated from "Huyết áp" label by OCR wrap)
+    if key in {"bp_systolic", "bp_diastolic"}:
+        for line in lines:
+            pair = _slash_pair(line)
+            if not pair:
+                continue
+            folded = _fold(line)
+            if "mmhg" in folded or "huyet ap" in folded or _alias_hit("huyet ap", line):
+                left, right = pair
+                pick = left if key == "bp_systolic" else right
+                fixed, _ = recover_decimal(key, pick)
+                if _plausible(key, fixed):
+                    return fixed
+
     for i, line in enumerate(lines):
         if not any(_alias_hit(a, line) for a in aliases):
             continue
@@ -112,9 +167,23 @@ def _scan_text_for_metric(ocr_text: str, key: str, aliases: tuple[str, ...]) -> 
         for a in sorted(aliases, key=len, reverse=True):
             pos = folded.find(_fold(a))
             if pos >= 0:
-                # map roughly by character index (fold keeps length ≈ original for ASCII-heavy OCR)
                 after = line[pos + len(a) :]
                 break
+
+        # Blood pressure / electrolyte slash pairs
+        if key in {"bp_systolic", "bp_diastolic", "potassium", "sodium"}:
+            pair = _slash_pair(after) or _slash_pair(line)
+            if not pair and i + 1 < len(lines):
+                pair = _slash_pair(lines[i + 1])
+            if not pair and i > 0:
+                pair = _slash_pair(lines[i - 1])
+            if pair:
+                left, right = pair
+                pick = left if key in {"bp_systolic", "potassium"} else right
+                fixed, _ = recover_decimal(key, pick)
+                if _plausible(key, fixed):
+                    return fixed
+
         candidates = _numbers_from_segment(after) or _numbers_from_segment(line)
         # Also peek next line (result sometimes below)
         if i + 1 < len(lines):
@@ -160,7 +229,7 @@ def _scan_boxes_for_metric(boxes: list[WordBox], key: str, aliases: tuple[str, .
         label_cx = 0
         for idx, b in enumerate(row):
             token = b.text
-            hit = any(_alias_hit(a, token) or _compact(a) in _compact(token) for a in aliases)
+            hit = any(_alias_hit(a, token) for a in aliases)
             if not hit:
                 for width in (2, 3, 4):
                     if idx + width > len(row):
@@ -190,12 +259,11 @@ def _scan_boxes_for_metric(boxes: list[WordBox], key: str, aliases: tuple[str, .
         ]
         right_nums: list[tuple[int, float]] = []
         for b in same_half:
-            m = NUM_RE.search(b.text.replace(",", "."))
+            m = NUM_RE.search(b.text)
             if not m:
                 continue
-            try:
-                val = float(m.group(0).replace(",", "."))
-            except ValueError:
+            val = parse_number_token(m.group(0))
+            if val is None:
                 continue
             # Skip tiny gaps (often reference fragment glued to label)
             if b.left - label_right < 40 and val < 20 and key not in {"hct", "hdl", "ldl", "rbc"}:
@@ -224,7 +292,15 @@ def lexicon_extract(
     found: dict[str, ExtractedParameter] = {}
 
     for metric in ROW_METRICS:
-        if document_type == "ultrasound" and metric.key not in {"endometrium_mm"}:
+        if document_type == "ultrasound" and metric.key not in {
+            "endometrium_mm",
+            "ef_pct",
+            "lvdd_mm",
+            "lvds_mm",
+            "ivsd_mm",
+            "la_mm",
+            "paps_mmhg",
+        }:
             continue
 
         value: float | None = None

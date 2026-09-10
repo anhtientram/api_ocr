@@ -1,47 +1,44 @@
 # AI Intake Proxy (api_ocr) — Agent Guide
 
-Microservice OCR + AI phân tích tài liệu y tế cho hệ thống **clinic-booking** (NTT Mini CRM / Remote Prescription).
+Microservice OCR + AI phân tích tài liệu y tế cho **clinic-booking** (Phase 2 Rev 0.2).
 
 ## Product goal
 
-Nhận ảnh/PDF phiếu xét nghiệm (đã anonymize từ Web App) → OCR → AI bóc chỉ số JSON + bbox source-trace + (tuỳ chọn) summary 30s → trả về cho `AiProxyClient` của clinic-booking.
+Nhận ảnh/PDF **derivative** (đã anonymize/orient từ Web App) → OCR → JSON chỉ số + `bbox_norm` (%) + (tuỳ chọn) summary → `AiProxyHmacClient`.
 
-## Stack (chốt)
+## Stack
 
 - Python 3.11+ / FastAPI
-- Tesseract OCR (`vie` + `eng`) + pdf2image/Poppler
-- AI provider qua env (OpenAI / Gemini / Claude) — structured JSON output
-- Docker 1 service; auth bằng internal secret key
-- Không lưu PII; file tạm xoá sau xử lý
+- RapidOCR (default) / Tesseract fallback
+- AI provider qua env (Gemini / OpenAI-compatible)
+- Auth: HMAC Rev 0.2 (+ legacy API key)
 
 ## Consumer
 
-| Hệ thống | Path tham chiếu trong monorepo |
+| Hệ thống | Path |
 |---|---|
 | Web App | `clinic-booking/` |
-| Tasks Phase 2 | `clinic-booking/tasks.json` → P2.01–P2.09 |
-| OCR workflow Web App | `clinic-booking/.agents/workflows/dev2/dev2-p2.03-ocr-reader.md` |
-| Form Tầng 3 | `clinic-booking/docs/architecture/form-3-tier.md` |
+| Spec | `clinic-booking/PHASE2_AI_INTAKE_DEV_SPEC_REV_0_2.md` |
+| Persistence | `ai_extraction_runs` (không còn `ai_extraction_logs` 1-1) |
 
 ## Priorities
 
-1. Zero PII trong log / payload gửi model (SĐT, họ tên, địa chỉ đã bị Web App strip trước khi gọi).
-2. AI **không** chẩn đoán, **không** kê thuốc.
-3. Confidence thấp → đánh dấu cần Human Verify; không bịa chỉ số.
-4. Proxy down / OCR fail → trả lỗi có cấu trúc; Web App fallback thủ công (P2.08).
-5. Contract API ổn định với `AiProxyClient` — không đổi field breaking mà không version.
+1. HMAC + error `retryable` taxonomy.
+2. Zero PII trong log; redact SĐT/CCCD trong OCR text.
+3. `bbox_norm` % trên coordinate_space=`derivative`.
+4. Pass 2 nhận `verified_parameters` + `anonymous_patient_token`.
+5. AI không chẩn đoán / kê thuốc.
 
 ## Ownership boundary
 
-| Repo này (`api_ocr`) | Repo `clinic-booking` |
+| Repo này | clinic-booking |
 |---|---|
-| OCR, AI extract, summary, bbox, token cost | PII anonymizer, AiProxyClient, UI Source Trace, Risk Flags, fallback |
-| Endpoint `/v1/ocr/*`, `/v1/analyze/*` | Lưu `ai_extraction_logs`, B2 verify |
+| `/v1/ocr/*`, `/v1/analyze/*` | Derivative, jobs, revisions, UI, Medical Matrix |
 
 ## Do not do
 
-- Không tự chẩn đoán / gợi ý thuốc trong response.
-- Không log raw text chứa PII nếu vẫn lọt từ client.
+- Không tự chẩn đoán / gợi ý thuốc.
+- Không log raw provider response có PII.
 - Không trả public URL file.
-- Không hard-code API key trong repo.
-- Không phụ thuộc Laravel/Filament — đây là service độc lập.
+- Không hard-code API key.
+- Không phụ thuộc Laravel.

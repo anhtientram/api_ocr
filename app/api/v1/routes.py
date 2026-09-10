@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 
 from app.core.config import Settings, get_settings
 from app.core.constants import DocumentType, ErrorCode
 from app.core.errors import AppError
-from app.core.security import require_proxy_key
+from app.core.security import require_proxy_auth
 from app.models.schemas import ExtractedParameter, OcrExtractResponse, SummaryRequest, SummaryResponse, UsageInfo
 from app.services.ai import AiService, prepare_images_for_vision
 from app.services.bbox import WordBox, attach_bboxes
@@ -19,7 +19,7 @@ from app.services.column_extract import extract_from_column_layout
 from app.services.lexicon_extract import lexicon_extract
 from app.services.table_extract import extract_from_rows, merge_extracts
 
-router = APIRouter(prefix="/v1", dependencies=[Depends(require_proxy_key)])
+router = APIRouter(prefix="/v1", dependencies=[Depends(require_proxy_auth)])
 
 
 def _parse_bool(value: str | bool | None, default: bool) -> bool:
@@ -47,9 +47,10 @@ def _local_extract(
     column_params: list[ExtractedParameter] = []
     if file_bytes:
         column_params = extract_from_column_layout(file_bytes, filename, document_type)
-    # Column bands first (accurate on 2-col forms), then lexicon ABC, then row/heuristic
+    # Lexicon ABC first (dictionary + geometry), then rows/heuristic, then column bands.
+    # First-wins-on-tie in merge_extracts — prefer precise label matches over column pairing.
     return apply_verify_threshold(
-        merge_extracts(column_params, lex_params, table_params, heur_params),
+        merge_extracts(lex_params, table_params, heur_params, column_params),
         threshold,
     )
 
@@ -131,7 +132,9 @@ async def ocr_extract(
 
     warnings: list[str] = []
     ai = AiService(settings)
-    mode = (settings.extract_mode or "free").lower().strip()
+    from app.core.runtime_config import effective_extract_mode
+
+    mode = effective_extract_mode(settings.extract_mode or "free")
 
     ocr_ms = 0
     ocr_confidence = 0.0
@@ -265,11 +268,29 @@ async def ocr_extract(
             warnings.append("no_filled_results")
 
     source_trace: dict = {}
+    page_geometry = []
     if want_bbox and word_boxes and params:
-        params, source_trace = attach_bboxes(params, word_boxes)
+        params, source_trace, page_geometry = attach_bboxes(params, word_boxes)
         unresolved = [p.key for p in params if p.bbox is None]
         if unresolved:
             warnings.append("bbox_unresolved:" + ",".join(unresolved))
+    elif word_boxes:
+        # Still expose page geometry for derivative coordinate space
+        seen_pages: set[int] = set()
+        from app.models.schemas import PageGeometry
+
+        for wb in word_boxes:
+            if wb.page in seen_pages or wb.page_width <= 0:
+                continue
+            seen_pages.add(wb.page)
+            page_geometry.append(
+                PageGeometry(
+                    page=wb.page,
+                    width=wb.page_width,
+                    height=wb.page_height,
+                    coordinate_space="derivative",
+                )
+            )
 
     summary_text = None
     summary_usage = UsageInfo()
@@ -311,6 +332,8 @@ async def ocr_extract(
         ocr_confidence=ocr_confidence,
         extracted_parameters=params,
         source_trace_map=source_trace,
+        page_geometry=page_geometry,
+        coordinate_space="derivative",
         ai_summary_30s=summary_text,
         usage=usage,
         warnings=uniq_warnings,
@@ -329,12 +352,56 @@ async def analyze_summary(
     rid = body.request_id or str(uuid.uuid4())
     if rid == "string":
         rid = str(uuid.uuid4())
-    blob = " ".join(str(v) for v in (body.layer1_clinical_notes or {}).values())
+    notes = body.layer1_clinical_notes or {}
+    if body.b2_clinical_notes:
+        notes = {**notes, "b2_clinical_notes": body.b2_clinical_notes}
+    blob = " ".join(str(v) for v in notes.values())
     _, pii = redact_pii(blob)
-    notes = body.layer1_clinical_notes
     if pii:
-        notes = {k: (redact_pii(str(v))[0] if isinstance(v, str) else v) for k, v in (notes or {}).items()}
+        notes = {k: (redact_pii(str(v))[0] if isinstance(v, str) else v) for k, v in notes.items()}
+
+    verified = body.verified_parameters or body.layer2_clinical_data or {}
 
     ai = AiService(settings)
-    text, usage = ai.summarize(notes, body.layer2_clinical_data, body.extracted_parameters, body.document_hints)
-    return SummaryResponse(request_id=rid, ai_summary_30s=strip_clinical_advice(text), usage=usage)
+    text, usage = ai.summarize(
+        notes,
+        verified,
+        body.extracted_parameters,
+        body.document_hints,
+        verified_parameters=verified,
+        b2_clinical_notes=body.b2_clinical_notes,
+        anonymous_patient_token=body.anonymous_patient_token,
+    )
+    return SummaryResponse(
+        request_id=rid,
+        correlation_id=body.correlation_id,
+        anonymous_patient_token=body.anonymous_patient_token,
+        ai_summary_30s=strip_clinical_advice(text),
+        usage=usage,
+    )
+
+
+@router.post("/admin/runtime-config", summary="Push extract_mode + LLM keys from clinic-booking")
+async def admin_runtime_config(request: Request, settings: Settings = Depends(get_settings)) -> dict:
+    from app.core.runtime_config import set_override
+
+    try:
+        payload = await request.json()
+    except Exception as e:
+        raise AppError(ErrorCode.INVALID_FILE, "Invalid JSON body.", status_code=400) from e
+    if not isinstance(payload, dict):
+        raise AppError(ErrorCode.INVALID_FILE, "Expected JSON object.", status_code=400)
+
+    saved = set_override(payload)
+    # Never echo secrets back
+    return {
+        "ok": True,
+        "extract_mode": saved.get("extract_mode"),
+        "preferred_provider": saved.get("preferred_provider"),
+        "gemini_model": saved.get("gemini_model"),
+        "openai_model": saved.get("openai_model"),
+        "ai_enabled": saved.get("ai_enabled"),
+        "has_gemini_key": bool(saved.get("gemini_api_key")),
+        "has_openai_key": bool(saved.get("openai_api_key")),
+        "env_extract_mode_default": settings.extract_mode,
+    }

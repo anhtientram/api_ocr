@@ -64,6 +64,7 @@ def run_on_pil(img: Image.Image, page: int = 0) -> tuple[str, float, list[WordBo
     """Return (text, avg_confidence, word_boxes)."""
     engine = _get_engine()
     bgr = _pil_to_bgr(img)
+    page_h, page_w = int(bgr.shape[0]), int(bgr.shape[1])
     result, _elapse = engine(bgr)
     if not result:
         return "", 0.0, []
@@ -88,6 +89,8 @@ def run_on_pil(img: Image.Image, page: int = 0) -> tuple[str, float, list[WordBo
                 top=top,
                 width=width,
                 height=height,
+                page_width=page_w,
+                page_height=page_h,
             )
         )
 
