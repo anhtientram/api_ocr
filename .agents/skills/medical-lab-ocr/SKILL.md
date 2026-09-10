@@ -26,15 +26,16 @@ description: >-
 | key | Aliases OCR thường gặp | unit mặc định |
 |---|---|---|
 | `amh` | AMH, Anti-Müllerian | ng/mL |
-| `fsh` | FSH | mIU/mL |
-| `lh` | LH | mIU/mL |
-| `e2` | E2, Estradiol, Estradiol (E2) | pg/mL |
-| `progesterone` | Progesterone, P4 | ng/mL |
-| `prolactin` | Prolactin, PRL | ng/mL |
-| `tsh` | TSH | µIU/mL |
-| `endometrium_mm` | Niêm mạc, Độ dày NMTC | mm |
+| `fsh` / `lh` / `e2` | FSH, LH, Estradiol | mIU/mL / pg/mL |
+| `total_t` / `free_t` | Total T, Free T | nmol/L / pmol/L |
+| `nt_probnp` / `troponin_t` / `ck_mb` | NT-proBNP, hs-cTnT, CK-MB | pg/mL / ng/L / U/L |
+| `cholesterol` / `ldl` / `hdl` / `triglycerid` | lipid panel | mmol/L |
+| `ef_pct` / `lvdd_mm` / `paps_mmhg` | siêu âm tim | % / mm / mmHg |
+| `bp_systolic` / `bp_diastolic` | 145/90 mmHg | mmHg |
+| `tsh` / `ft4` / `ft3` | tuyến giáp | µIU/mL / pmol/L |
+| `hba1c` / `crp` / `psa` | đái tháo đường / viêm / tiền liệt | % / mg/L / ng/mL |
 
-Thêm key mới: cập nhật bảng này + schema + test.
+Thêm key mới: cập nhật `ROW_METRICS` + `TYPICAL_RANGE` + test fixture chuyên khoa.
 
 ## Output item shape
 

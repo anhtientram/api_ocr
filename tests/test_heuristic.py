@@ -19,6 +19,13 @@ def test_redact_phone():
     assert "091***678" in text
 
 
+def test_redact_cccd():
+    text, found = redact_pii("CCCD: 079123456789 AMH 1.2")
+    assert found is True
+    assert "079123456789" not in text
+    assert "079***789" in text
+
+
 def test_strip_diagnosis_lines():
     text = "AMH thấp.\nChẩn đoán: suy buồng trứng.\nChỉ số FSH 12."
     cleaned = strip_clinical_advice(text)

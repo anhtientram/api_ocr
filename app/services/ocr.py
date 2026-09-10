@@ -72,7 +72,7 @@ class OcrService:
             else:
                 pages = [self._ocr_image(content, lang, page=0, engine=engine)]
         else:
-            raise AppError(ErrorCode.INVALID_FILE, "Unsupported file type. Use PNG/JPEG/WEBP/PDF.", status_code=400)
+            raise AppError(ErrorCode.UNSUPPORTED_IMAGE, "Unsupported file type. Use PNG/JPEG/WEBP/PDF.", status_code=400)
 
         if not pages:
             raise AppError(ErrorCode.OCR_FAILED, "No pages could be OCR'd.", status_code=422)
@@ -184,6 +184,7 @@ class OcrService:
         except Exception as e:
             raise AppError(ErrorCode.OCR_FAILED, "Tesseract failed to process image.", status_code=422) from e
 
+        page_w, page_h = gray.size
         word_boxes: list[WordBox] = []
         confs: list[float] = []
         n = len(data.get("text", []))
@@ -206,6 +207,8 @@ class OcrService:
                     top=int(data["top"][i]),
                     width=int(data["width"][i]),
                     height=int(data["height"][i]),
+                    page_width=page_w,
+                    page_height=page_h,
                 )
             )
 

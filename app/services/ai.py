@@ -13,6 +13,7 @@ from PIL import Image
 from app.core.config import Settings
 from app.core.constants import ErrorCode
 from app.core.errors import AppError
+from app.core.runtime_config import effective_api_key, effective_model, load_override
 from app.models.schemas import ExtractedParameter, UsageInfo
 from app.services.heuristic_extract import heuristic_extract
 from app.services.postfilter import apply_verify_threshold, strip_clinical_advice
@@ -26,7 +27,23 @@ class AiService:
 
     @property
     def available(self) -> bool:
-        return bool(self.settings.ai_enabled and self.settings.resolved_ai_api_key)
+        ov = load_override()
+        if ov and ov.get("ai_enabled") is False:
+            return False
+        provider = (ov.get("preferred_provider") if ov else None) or self.settings.ai_provider or "gemini"
+        key = effective_api_key(self.settings.resolved_ai_api_key, provider=provider)
+        enabled = self.settings.ai_enabled if not ov else bool(ov.get("ai_enabled", True))
+        return bool(enabled and key)
+
+    def _api_key(self) -> str:
+        ov = load_override()
+        provider = (ov.get("preferred_provider") if ov else None) or self.settings.ai_provider or "gemini"
+        return effective_api_key(self.settings.resolved_ai_api_key, provider=provider)
+
+    def _model(self) -> str:
+        ov = load_override()
+        provider = (ov.get("preferred_provider") if ov else None) or self.settings.ai_provider or "gemini"
+        return effective_model(self.settings.ai_model, provider=provider)
 
     def extract_from_image(
         self,
@@ -96,10 +113,23 @@ class AiService:
         document_hints: list[str],
         *,
         use_ai: bool = True,
+        verified_parameters: dict[str, Any] | None = None,
+        b2_clinical_notes: str | None = None,
+        anonymous_patient_token: str | None = None,
     ) -> tuple[str, UsageInfo]:
+        # Prefer Rev 0.2 verified snapshot over deprecated layer2 draft names
+        clinical_snapshot = verified_parameters if verified_parameters else layer2
+        notes_blob = layer1 or {}
+        if b2_clinical_notes:
+            notes_blob = {**notes_blob, "b2_clinical_notes": b2_clinical_notes}
+
         payload = {
-            "layer1_clinical_notes": layer1,
-            "layer2_clinical_data": layer2,
+            "anonymous_patient_token": anonymous_patient_token,
+            "verified_parameters": clinical_snapshot,
+            "b2_clinical_notes": b2_clinical_notes,
+            # Deprecated keys kept for prompt compatibility
+            "layer1_clinical_notes": notes_blob,
+            "layer2_clinical_data": clinical_snapshot,
             "extracted_parameters": [p.model_dump() for p in params],
             "document_hints": document_hints,
         }
@@ -113,6 +143,8 @@ class AiService:
                 raise AppError(ErrorCode.AI_FAILED, "AI summary failed.", status_code=502) from e
 
         bits: list[str] = []
+        if clinical_snapshot:
+            bits.append("Chỉ số đã xác minh B2: " + ", ".join(f"{k}={v}" for k, v in list(clinical_snapshot.items())[:12]) + ".")
         if params:
             filled = [p for p in params if p.value is not None]
             if filled:
@@ -123,15 +155,17 @@ class AiService:
                     )
                     + "."
                 )
-            else:
+            elif not clinical_snapshot:
                 bits.append("Không có chỉ số kết quả đã điền trên phiếu.")
-        hist = (layer1 or {}).get("medical_history")
+        if b2_clinical_notes:
+            bits.append(f"Ghi chú B2: {b2_clinical_notes}.")
+        hist = notes_blob.get("medical_history")
         if hist:
             bits.append(f"Tiền sử (đã anonymize): {hist}.")
-        allergies = (layer1 or {}).get("allergies")
+        allergies = notes_blob.get("allergies")
         if allergies:
             bits.append(f"Dị ứng: {allergies}.")
-        meds = (layer1 or {}).get("current_medications")
+        meds = notes_blob.get("current_medications")
         if meds:
             bits.append(f"Thuốc đang dùng (khách khai): {meds}.")
         if not bits:
@@ -170,13 +204,14 @@ class AiService:
         return self._chat_messages(messages, json_mode=json_mode)
 
     def _chat_messages(self, messages: list[dict[str, Any]], *, json_mode: bool = False) -> tuple[str, UsageInfo]:
-        api_key = self.settings.resolved_ai_api_key
+        api_key = self._api_key()
+        model = self._model()
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         body: dict[str, Any] = {
-            "model": self.settings.ai_model,
+            "model": model,
             "temperature": 0,
             "messages": messages,
         }
@@ -187,10 +222,12 @@ class AiService:
             with httpx.Client(timeout=self.settings.ai_timeout_seconds) as client:
                 resp = client.post(url, headers=headers, json=body)
         except httpx.TimeoutException as e:
-            raise AppError(ErrorCode.AI_FAILED, "AI provider timeout.", status_code=504) from e
+            raise AppError(ErrorCode.PROVIDER_TIMEOUT, "AI provider timeout.", status_code=504) from e
         except httpx.HTTPError as e:
             raise AppError(ErrorCode.AI_FAILED, "AI provider unreachable.", status_code=502) from e
 
+        if resp.status_code == 429:
+            raise AppError(ErrorCode.RATE_LIMIT, "AI provider rate limited.", status_code=429)
         if resp.status_code >= 400:
             raise AppError(ErrorCode.AI_FAILED, f"AI provider error ({resp.status_code}).", status_code=502)
 
@@ -200,7 +237,7 @@ class AiService:
         usage = UsageInfo(
             prompt_tokens=usage_raw.get("prompt_tokens"),
             completion_tokens=usage_raw.get("completion_tokens"),
-            model=self.settings.ai_model,
+            model=model,
         )
         return content, usage
 

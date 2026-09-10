@@ -36,6 +36,63 @@ METRICS: tuple[MetricDef, ...] = (
     MetricDef("ast", "AST (GOT)", "U/L", _p(r"AST\s*(?:\(GOT\))?\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)", r"\bGOT\b\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)")),
     MetricDef("alt", "ALT (GPT)", "U/L", _p(r"ALT\s*(?:\(GPT\))?\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)", r"\bGPT\b\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)")),
     MetricDef("uric_acid", "Acid Uric", "µmol/L", _p(r"Acid\s*Uric\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)", r"Uric\s*Acid\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)")),
+    MetricDef(
+        "nt_probnp",
+        "NT-proBNP",
+        "pg/mL",
+        _p(r"NT-?\s*pro\s*BNP[^\d]{0,40}([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?|[0-9]+(?:[.,][0-9]+)?)"),
+    ),
+    MetricDef(
+        "troponin_t",
+        "Troponin T (hs-cTnT)",
+        "ng/L",
+        _p(r"Troponin\s*T[^\d]{0,40}([0-9]+(?:[.,][0-9]+)?)", r"hs-?cTnT[^\d]{0,20}([0-9]+(?:[.,][0-9]+)?)"),
+    ),
+    MetricDef("ck_mb", "CK-MB", "U/L", _p(r"CK-?\s*MB[^\d]{0,20}([0-9]+(?:[.,][0-9]+)?)")),
+    MetricDef(
+        "ef_pct",
+        "EF (phân suất tống máu)",
+        "%",
+        _p(r"\bEF\b[^\d]{0,40}([0-9]+(?:[.,][0-9]+)?)\s*%?", r"Simpson[^\d]{0,20}([0-9]+(?:[.,][0-9]+)?)"),
+    ),
+    MetricDef("lvdd_mm", "LVDd", "mm", _p(r"LVDd[^\d]{0,20}([0-9]+(?:[.,][0-9]+)?)", r"tam\s*tr[uư][oơ]ng[^\d]{0,20}([0-9]+(?:[.,][0-9]+)?)\s*mm")),
+    MetricDef("lvds_mm", "LVDs", "mm", _p(r"LVDs[^\d]{0,20}([0-9]+(?:[.,][0-9]+)?)")),
+    MetricDef("ivsd_mm", "IVSd", "mm", _p(r"IVSd[^\d]{0,20}([0-9]+(?:[.,][0-9]+)?)", r"v[aá]ch\s*li[eê]n\s*th[aâ]t[^\d]{0,20}([0-9]+(?:[.,][0-9]+)?)")),
+    MetricDef("la_mm", "Nhĩ trái (LA)", "mm", _p(r"(?:nh[iĩ]\s*tr[aá]i|\bLA\b)[^\d]{0,30}([0-9]+(?:[.,][0-9]+)?)\s*mm")),
+    MetricDef("paps_mmhg", "PAPs", "mmHg", _p(r"PAPs?[^\d]{0,20}([0-9]+(?:[.,][0-9]+)?)", r"[AÁ]p\s*l[ưu]c\s*DM\s*ph[oổi][^\d]{0,20}([0-9]+(?:[.,][0-9]+)?)")),
+    MetricDef("tsh", "TSH", "µIU/mL", _p(r"\bTSH\b\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)")),
+    MetricDef("ft4", "FT4", "pmol/L", _p(r"\bFT4\b\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)")),
+    MetricDef("ft3", "FT3", "pmol/L", _p(r"\bFT3\b\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)")),
+    MetricDef("hba1c", "HbA1c", "%", _p(r"HbA1c\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)", r"\bA1[Cc]\b\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)")),
+    MetricDef("crp", "CRP", "mg/L", _p(r"\bCRP\b\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)")),
+    MetricDef("psa", "PSA", "ng/mL", _p(r"\bPSA\b\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)")),
+    MetricDef(
+        "total_t",
+        "Testosterone toàn phần (Total T)",
+        "nmol/L",
+        _p(
+            r"Testosterone\s*(?:to[aà]n\s*ph[aầ]n|toan\s*phan)?\s*(?:\(Total\s*T\))?\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)",
+            r"\bTotal\s*T\b\s*[:\|\)\s]*([0-9]+(?:[.,][0-9]+)?)",
+        ),
+    ),
+    MetricDef(
+        "free_t",
+        "Testosterone tự do (Free T)",
+        "pmol/L",
+        _p(
+            r"Testosterone\s*(?:t[ựu]\s*do|tu\s*do|ty\s*do)?\s*(?:\(Free\s*T\))?\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)",
+            r"\bFree\s*T\b\s*[:\|\)\s]*([0-9]+(?:[.,][0-9]+)?)",
+        ),
+    ),
+    MetricDef("prolactin", "Prolactin", "mIU/L", _p(r"\bProlactin\b\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)")),
+    MetricDef(
+        "sperm_concentration",
+        "Mật độ tinh trùng",
+        "triệu/mL",
+        _p(
+            r"(?:M[ậa]t\s*đ[ộo]\s*tinh\s*tr[uù]ng|Mat\s*do\s*tinh\s*trung|Concentration)\s*[:\|]?\s*([0-9]+(?:[.,][0-9]+)?)",
+        ),
+    ),
     MetricDef("endometrium_mm", "Niêm mạc tử cung", "mm", _p(r"(?:niêm\s*mạc|niem\s*mac|endometr\w*)[^\d]{0,30}([0-9]+(?:[.,][0-9]+)?)\s*mm")),
     # Huyết học
     MetricDef(
@@ -84,11 +141,9 @@ METRICS: tuple[MetricDef, ...] = (
 
 
 def _to_float(raw: str) -> float | None:
-    try:
-        return float(raw.replace(",", "."))
-    except ValueError:
-        return None
+    from app.services.table_extract import parse_number_token
 
+    return parse_number_token(raw)
 
 def heuristic_extract(ocr_text: str, document_type: str = "lab") -> list[ExtractedParameter]:
     """Offline extractor — 0 token. Best-effort on OCR text."""
@@ -99,7 +154,15 @@ def heuristic_extract(ocr_text: str, document_type: str = "lab") -> list[Extract
 
     found: dict[str, ExtractedParameter] = {}
     for metric in METRICS:
-        if document_type == "ultrasound" and metric.key not in {"endometrium_mm"}:
+        if document_type == "ultrasound" and metric.key not in {
+            "endometrium_mm",
+            "ef_pct",
+            "lvdd_mm",
+            "lvds_mm",
+            "ivsd_mm",
+            "la_mm",
+            "paps_mmhg",
+        }:
             continue
         for pattern in metric.patterns:
             m = pattern.search(ocr_text)
