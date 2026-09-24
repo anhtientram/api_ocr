@@ -23,18 +23,24 @@ logger = logging.getLogger(__name__)
 @lru_cache(maxsize=1)
 def _get_engine() -> Any:
     import os
+
+    # Cap thread usage to at most 2 cores so OCR does not saturate all VPS cores
+    cpu_limit = max(1, min(2, (os.cpu_count() or 2) // 2))
+    os.environ.setdefault("OMP_NUM_THREADS", str(cpu_limit))
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", str(cpu_limit))
+    os.environ.setdefault("MKL_NUM_THREADS", str(cpu_limit))
+
     from rapidocr_onnxruntime import RapidOCR
 
-    threads = max(1, min(8, os.cpu_count() or 4))
     try:
-        params = {
-            "EngineConfig.onnxruntime.intra_op_num_threads": threads,
-            "EngineConfig.onnxruntime.inter_op_num_threads": 1,
-        }
-        return RapidOCR(params=params)
+        return RapidOCR(intra_op_num_threads=cpu_limit, inter_op_num_threads=1)
     except Exception:
         try:
-            return RapidOCR(intra_op_num_threads=threads)
+            params = {
+                "EngineConfig.onnxruntime.intra_op_num_threads": cpu_limit,
+                "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+            }
+            return RapidOCR(params=params)
         except Exception:
             return RapidOCR()
 
