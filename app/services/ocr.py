@@ -104,7 +104,7 @@ class OcrService:
         try:
             images = convert_from_bytes(
                 content,
-                dpi=max(self.settings.ocr_dpi, 250),
+                dpi=self.settings.ocr_dpi,
                 fmt="png",
                 first_page=1,
                 last_page=self.settings.max_pdf_pages,
@@ -138,8 +138,9 @@ class OcrService:
                         word_boxes=boxes,
                         engine="paddle",
                     )
-            except Exception:
-                # Fall through to Tesseract
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("RapidOCR failed on page %d: %s. Falling back to Tesseract.", page, e)
                 pass
             return self._ocr_tesseract(img, lang, page)
 

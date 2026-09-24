@@ -22,10 +22,21 @@ logger = logging.getLogger(__name__)
 
 @lru_cache(maxsize=1)
 def _get_engine() -> Any:
+    import os
     from rapidocr_onnxruntime import RapidOCR
 
-    # Default ch/en models still read Latin digits well (lab metrics).
-    return RapidOCR()
+    threads = max(1, min(8, os.cpu_count() or 4))
+    try:
+        params = {
+            "EngineConfig.onnxruntime.intra_op_num_threads": threads,
+            "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+        }
+        return RapidOCR(params=params)
+    except Exception:
+        try:
+            return RapidOCR(intra_op_num_threads=threads)
+        except Exception:
+            return RapidOCR()
 
 
 def available() -> bool:
@@ -41,12 +52,16 @@ def _pil_to_bgr(img: Image.Image) -> np.ndarray:
     rgb = ImageOps.exif_transpose(img)
     if rgb.mode != "RGB":
         rgb = rgb.convert("RGB")
-    # Upscale small scans for thin decimals
     w, h = rgb.size
     min_side = min(w, h)
-    if min_side < 1200:
-        scale = 1200 / min_side
-        rgb = rgb.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
+    max_side = max(w, h)
+    # Upscale very small scans, but cap oversized images at 1800px for balanced accuracy & speed
+    if min_side < 1000:
+        scale = 1000 / min_side
+        rgb = rgb.resize((int(w * scale), int(h * scale)), Image.Resampling.BILINEAR)
+    elif max_side > 1800:
+        scale = 1800 / max_side
+        rgb = rgb.resize((int(w * scale), int(h * scale)), Image.Resampling.BILINEAR)
     arr = np.array(rgb)
     # RapidOCR / OpenCV expect BGR
     return arr[:, :, ::-1].copy()

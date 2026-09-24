@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     max_file_bytes: int = 15 * 1024 * 1024
     max_pdf_pages: int = 20
     ocr_languages: str = "vie+eng"
-    ocr_dpi: int = 200
+    ocr_dpi: int = 150
     # paddle = RapidOCR (PaddleOCR ONNX, recommended); tesseract = legacy
     ocr_engine: str = "paddle"
     confidence_verify_threshold: float = 0.7
