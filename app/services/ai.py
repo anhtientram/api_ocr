@@ -143,34 +143,26 @@ class AiService:
                 raise AppError(ErrorCode.AI_FAILED, "AI summary failed.", status_code=502) from e
 
         bits: list[str] = []
-        if clinical_snapshot:
-            bits.append("Chỉ số đã xác minh B2: " + ", ".join(f"{k}={v}" for k, v in list(clinical_snapshot.items())[:12]) + ".")
-        if params:
-            filled = [p for p in params if p.value is not None]
-            if filled:
-                bits.append(
-                    "Chỉ số đã trích: "
-                    + ", ".join(
-                        f"{p.label}={p.value}{' ' + p.unit if p.unit else ''}".strip() for p in filled
-                    )
-                    + "."
-                )
-            elif not clinical_snapshot:
-                bits.append("Không có chỉ số kết quả đã điền trên phiếu.")
         if b2_clinical_notes:
             bits.append(f"Ghi chú B2: {b2_clinical_notes}.")
-        hist = notes_blob.get("medical_history")
+        hist = notes_blob.get("medical_history") if notes_blob else None
         if hist:
-            bits.append(f"Tiền sử (đã anonymize): {hist}.")
-        allergies = notes_blob.get("allergies")
+            bits.append(f"Tiền sử: {hist}.")
+        allergies = notes_blob.get("allergies") if notes_blob else None
         if allergies:
             bits.append(f"Dị ứng: {allergies}.")
-        meds = notes_blob.get("current_medications")
+        meds = notes_blob.get("current_medications") if notes_blob else None
         if meds:
-            bits.append(f"Thuốc đang dùng (khách khai): {meds}.")
+            bits.append(f"Thuốc đang dùng: {meds}.")
+        if clinical_snapshot:
+            bits.append("Chỉ số lâm sàng B2 đã xác minh: " + ", ".join(f"{k}={v}" for k, v in list(clinical_snapshot.items())[:8]) + ".")
+        elif params:
+            filled = [p for p in params if p.value is not None]
+            if filled:
+                bits.append("Chỉ số bóc tách: " + ", ".join(f"{p.label}={p.value}" for p in filled[:6]) + ".")
         if not bits:
-            bits.append("Chưa có đủ dữ liệu để tóm tắt.")
-        text = strip_clinical_advice(" ".join(bits))
+            bits.append("Chưa có đủ dữ liệu tiền sử để tóm tắt.")
+        text = " ".join(bits)
         return text, UsageInfo(model="heuristic", prompt_tokens=0, completion_tokens=0)
 
     def _read_prompt(self, name: str) -> str:
