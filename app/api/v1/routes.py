@@ -66,6 +66,8 @@ def _run_vision(
     content_type: str | None,
     document_type: str,
 ) -> tuple[list[ExtractedParameter], UsageInfo, list[str], str | None, int]:
+    from concurrent.futures import ThreadPoolExecutor
+
     images = prepare_images_for_vision(
         content,
         filename,
@@ -73,17 +75,31 @@ def _run_vision(
         max_pages=min(3, settings.max_pdf_pages),
         dpi=settings.ocr_dpi,
     )
+    if not images:
+        return [], UsageInfo(model=settings.ai_model), [], None, 0
+
+    def _process_page(item: tuple[bytes, str, int]):
+        img_bytes, mime, page = item
+        p, usage, w, vtext, ms = ai.extract_from_image(
+            img_bytes, document_type, mime_type=mime, page=page
+        )
+        return page, p, usage, w, vtext, ms
+
+    max_workers = min(4, len(images))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = list(executor.map(_process_page, images))
+
+    # Keep page order consistent
+    results.sort(key=lambda r: r[0])
+
     all_params: list[ExtractedParameter] = []
     vision_texts: list[str] = []
     warnings: list[str] = []
     total_prompt = 0
     total_completion = 0
     model_name = settings.ai_model
-    vision_ms = 0
-    for img_bytes, mime, page in images:
-        p, usage, w, vtext, ms = ai.extract_from_image(
-            img_bytes, document_type, mime_type=mime, page=page
-        )
+    max_ms = 0
+    for page, p, usage, w, vtext, ms in results:
         for item in p:
             data = item.model_dump()
             data["page"] = page
@@ -94,14 +110,15 @@ def _run_vision(
         total_prompt += usage.prompt_tokens or 0
         total_completion += usage.completion_tokens or 0
         model_name = usage.model or model_name
-        vision_ms += ms
+        max_ms = max(max_ms, ms)
+
     usage = UsageInfo(
         prompt_tokens=total_prompt or None,
         completion_tokens=total_completion or None,
         model=model_name,
     )
     joined = "\n\n".join(vision_texts) if vision_texts else None
-    return all_params, usage, warnings, joined, vision_ms
+    return all_params, usage, warnings, joined, max_ms
 
 
 @router.post(

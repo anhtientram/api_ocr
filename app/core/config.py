@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     #   ocr_first = table OCR trước; Vision chỉ khi thiếu chỉ số / OCR yếu  ← default cân bằng
     #   vision    = luôn Gemini Vision (tốn token nhất)
     extract_mode: str = "ocr_first"
-    run_ocr_with_vision: bool = True
+    run_ocr_with_vision: bool = False
     vision_fallback_min_confidence: float = 0.78
     vision_fallback_min_values: int = 8
 

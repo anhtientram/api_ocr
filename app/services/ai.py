@@ -325,16 +325,16 @@ def prepare_images_for_vision(
         out: list[tuple[bytes, str, int]] = []
         for idx, img in enumerate(images):
             buf = io.BytesIO()
-            img.convert("RGB").save(buf, format="PNG")
-            out.append((buf.getvalue(), "image/png", idx))
+            img.convert("RGB").save(buf, format="JPEG", quality=85)
+            out.append((buf.getvalue(), "image/jpeg", idx))
         return out
 
-    # Normalize any image to PNG for vision
+    # Normalize any image to JPEG for vision
     try:
         img = Image.open(io.BytesIO(content))
         img = img.convert("RGB")
         buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return [(buf.getvalue(), "image/png", 0)]
+        img.save(buf, format="JPEG", quality=85)
+        return [(buf.getvalue(), "image/jpeg", 0)]
     except Exception as e:
         raise AppError(ErrorCode.INVALID_FILE, "Unable to read image.", status_code=400) from e
