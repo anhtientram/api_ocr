@@ -393,7 +393,7 @@ async def analyze_summary(
         request_id=rid,
         correlation_id=body.correlation_id,
         anonymous_patient_token=body.anonymous_patient_token,
-        ai_summary_30s=strip_clinical_advice(text),
+        ai_summary_30s=text,
         usage=usage,
     )
 
