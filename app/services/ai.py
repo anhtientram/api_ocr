@@ -138,11 +138,8 @@ class AiService:
             try:
                 text, usage = self._llm_summary(payload)
                 return text.strip(), usage
-            except AppError:
-                raise
             except Exception as e:
-                # If API call fails (timeout/unreachable), proceed to clean heuristic fallback
-                pass
+                logger.warning("LLM summary failed or rate-limited (%s), falling back to clean heuristic summary", e)
 
         lines: list[str] = [
             "• Ghi chú lâm sàng & Dữ liệu xét nghiệm đã xác minh:",
