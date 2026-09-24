@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     ai_api_key: str = ""
     gemini_api_key: str = ""
     ai_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    ai_model: str = "gemini-2.5-flash"
+    ai_model: str = "gemini-1.5-flash"
     ai_timeout_seconds: float = 90.0
     ai_enabled: bool = True
 

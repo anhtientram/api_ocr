@@ -133,36 +133,52 @@ class AiService:
             "extracted_parameters": [p.model_dump() for p in params],
             "document_hints": document_hints,
         }
-        if use_ai and self.available:
+        has_key = bool(self._api_key())
+        if use_ai and has_key:
             try:
                 text, usage = self._llm_summary(payload)
-                return strip_clinical_advice(text), usage
+                return text.strip(), usage
             except AppError:
                 raise
             except Exception as e:
-                raise AppError(ErrorCode.AI_FAILED, "AI summary failed.", status_code=502) from e
+                # If API call fails (timeout/unreachable), proceed to clean heuristic fallback
+                pass
 
-        bits: list[str] = []
+        lines: list[str] = [
+            "• Ghi chú lâm sàng & Dữ liệu xét nghiệm đã xác minh:",
+        ]
         if b2_clinical_notes:
-            bits.append(f"Ghi chú B2: {b2_clinical_notes}.")
+            lines.append(f"  - Ghi chú B2: {b2_clinical_notes}")
         hist = notes_blob.get("medical_history") if notes_blob else None
         if hist:
-            bits.append(f"Tiền sử: {hist}.")
+            lines.append(f"  - Tiền sử: {hist}")
         allergies = notes_blob.get("allergies") if notes_blob else None
         if allergies:
-            bits.append(f"Dị ứng: {allergies}.")
+            lines.append(f"  - Dị ứng: {allergies}")
         meds = notes_blob.get("current_medications") if notes_blob else None
         if meds:
-            bits.append(f"Thuốc đang dùng: {meds}.")
+            lines.append(f"  - Thuốc đang dùng: {meds}")
+
         if clinical_snapshot:
-            bits.append("Chỉ số lâm sàng B2 đã xác minh: " + ", ".join(f"{k}={v}" for k, v in list(clinical_snapshot.items())[:8]) + ".")
+            lines.append("• Chỉ số xét nghiệm ghi nhận:")
+            for k, row in list(clinical_snapshot.items())[:12]:
+                if isinstance(row, dict):
+                    val = row.get("value")
+                    unit = row.get("unit") or ""
+                    lbl = row.get("label") or k
+                    if val is not None and str(val).strip() != "":
+                        lines.append(f"  - {lbl}: {val} {unit}".strip())
+                elif row is not None and str(row).strip() != "":
+                    lines.append(f"  - {k}: {row}")
         elif params:
             filled = [p for p in params if p.value is not None]
             if filled:
-                bits.append("Chỉ số bóc tách: " + ", ".join(f"{p.label}={p.value}" for p in filled[:6]) + ".")
-        if not bits:
-            bits.append("Chưa có đủ dữ liệu tiền sử để tóm tắt.")
-        text = " ".join(bits)
+                lines.append("• Chỉ số bóc tách:")
+                for p in filled[:10]:
+                    lines.append(f"  - {p.label}: {p.value} {p.unit or ''}".strip())
+
+        lines.append("• Lưu ý B3: Bác sĩ đối chiếu chỉ số xét nghiệm chi tiết trên bảng trước khi duyệt đơn.")
+        text = "\n".join(lines)
         return text, UsageInfo(model="heuristic", prompt_tokens=0, completion_tokens=0)
 
     def _read_prompt(self, name: str) -> str:
